@@ -1,19 +1,35 @@
 // C:\Users\Admin\Desktop\sexp\app\api\login\route.js
 import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import User from '@/model/user';
+import { connectDB } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
 export async function POST(request) {
     try {
+        console.log('🔑 Login API called');
+        
         // Connect to MongoDB
-        if (!mongoose.connections[0].readyState) {
-            await mongoose.connect(process.env.MONGODB_URI);
+        const db = await connectDB();
+        if (!db) {
+            console.error('❌ Database connection failed');
+            return NextResponse.json(
+                { message: 'Database connection failed' },
+                { status: 503 }
+            );
+        }
+
+        // Import User model
+        const User = (await import('@/model/user')).default;
+        
+        if (!User) {
+            console.error('❌ User model is not available');
+            return NextResponse.json(
+                { message: 'Server configuration error' },
+                { status: 500 }
+            );
         }
 
         const { username, password } = await request.json();
 
-        // Validate input
         if (!username || !password) {
             return NextResponse.json(
                 { message: 'Username and password are required' },
@@ -30,10 +46,31 @@ export async function POST(request) {
             );
         }
 
-        // Compare password (using bcrypt if you have it installed)
-        // For now, we'll do a simple comparison
-        // In production, use: const isValid = await bcrypt.compare(password, user.password);
-        const isValid = (user.password === password);
+        // Compare password
+        let isValid = false;
+        try {
+            // Check if password is hashed
+            if (user.password && (user.password.startsWith('$2a$') || user.password.startsWith('$2b$'))) {
+                isValid = await bcrypt.compare(password, user.password);
+            } else {
+                // Plain text password (for backward compatibility)
+                isValid = (user.password === password);
+                // If valid, hash the password for future
+                if (isValid) {
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash(password, salt);
+                    user.password = hashedPassword;
+                    await user.save();
+                    console.log('✅ Password upgraded to hash for user:', username);
+                }
+            }
+        } catch (compareError) {
+            console.error('❌ Error comparing passwords:', compareError);
+            return NextResponse.json(
+                { message: 'Authentication error' },
+                { status: 500 }
+            );
+        }
 
         if (!isValid) {
             return NextResponse.json(
@@ -51,24 +88,16 @@ export async function POST(request) {
             createAt: user.createAt,
         };
 
-        return NextResponse.json({
+        return NextResponse.json({ 
             message: 'Login successful',
-            user: userData
+            user: userData 
         }, { status: 200 });
-
+        
     } catch (error) {
-        console.error('Login error:', error);
+        console.error('❌ Login error:', error);
         return NextResponse.json(
-            { message: 'Internal server error' },
+            { message: 'Internal server error: ' + error.message },
             { status: 500 }
         );
     }
-}
-
-// Optional: Add GET method if needed
-export async function GET() {
-    return NextResponse.json(
-        { message: 'Login API endpoint' },
-        { status: 200 }
-    );
 }

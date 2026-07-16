@@ -5,45 +5,15 @@ import bcrypt from "bcryptjs";
 const { Schema, model } = mongoose;
 
 // Check if we're in a build environment
-const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
+const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build' || !process.env.MONGODB_URI;
 
-const UserSchema = new Schema({
-    name: { type: String, required: true },
-    username: { type: String, required: true, unique: true },
-    profilepic: { type: String, default: '/default-avatar.png' },
-    bio: { type: String, default: '' },
-    password: { type: String, required: true },
-    followers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-    following: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-    createAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now },
-}, { versionKey: false });
-
-// Hash password before saving
-UserSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
-    
-    try {
-        const salt = await bcrypt.genSalt(10);
-        this.password = await bcrypt.hash(this.password, salt);
-        next();
-    } catch (error) {
-        next(error);
-    }
-});
-
-UserSchema.methods.comparePassword = async function(candidatePassword) {
-    return await bcrypt.compare(candidatePassword, this.password);
-};
-
-// Export the model - always use mongoose.models if available
+// Only define the schema if we're not in build time
 let UserModel;
 
-// During build time, return a lightweight mock
-if (isBuildTime || !process.env.MONGODB_URI) {
+if (isBuildTime) {
     console.log('⚠️ Build time - using mock User model');
     // Create a simple mock that mimics the model interface
-    UserModel = function(data) {
+    UserModel = function (data) {
         this._doc = data || {};
         this.save = async () => this;
     };
@@ -55,12 +25,49 @@ if (isBuildTime || !process.env.MONGODB_URI) {
     UserModel.deleteOne = async () => ({ deletedCount: 0 });
     UserModel.updateOne = async () => ({ modifiedCount: 0 });
 } else {
-    // Use existing model or create new one
     try {
-        UserModel = mongoose.models.User || model("User", UserSchema);
+        // Check if model already exists
+        if (mongoose.models.User) {
+            UserModel = mongoose.models.User;
+        } else {
+            // Define the schema
+            const UserSchema = new Schema({
+                name: { type: String, required: true },
+                username: { type: String, required: true, unique: true },
+                profilepic: { type: String, default: '/default-avatar.png' },
+                bio: { type: String, default: '' },
+                password: { type: String, required: true },
+                followers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+                following: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+                createAt: { type: Date, default: Date.now },
+                updatedAt: { type: Date, default: Date.now },
+            }, { versionKey: false });
+
+            // Hash password before saving
+            UserSchema.pre('save', async function (next) {
+                if (!this.isModified('password')) return next();
+
+                try {
+                    const salt = await bcrypt.genSalt(10);
+                    this.password = await bcrypt.hash(this.password, salt);
+                    next();
+                } catch (error) {
+                    next(error);
+                }
+            });
+
+            // Compare password method
+            UserSchema.methods.comparePassword = async function (candidatePassword) {
+                return await bcrypt.compare(candidatePassword, this.password);
+            };
+
+            // Create the model
+            UserModel = model("User", UserSchema);
+        }
     } catch (error) {
         console.error('❌ Error creating User model:', error);
-        UserModel = mongoose.models.User;
+        // Fallback to existing model if available
+        UserModel = mongoose.models.User || null;
     }
 }
 

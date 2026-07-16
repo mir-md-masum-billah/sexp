@@ -1,21 +1,12 @@
 // C:\Users\Admin\Desktop\sexp\app\api\register\route.js
 import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
-import User from '@/model/user';
+import bcrypt from 'bcryptjs';
 
 export async function POST(request) {
     try {
         console.log('📝 Register API called');
-
-        // Check if User model is available
-        if (!User) {
-            console.error('❌ User model is not available');
-            return NextResponse.json(
-                { message: 'Server configuration error: User model not found' },
-                { status: 500 }
-            );
-        }
-
+        
         // Connect to MongoDB
         const db = await connectDB();
         if (!db) {
@@ -26,9 +17,20 @@ export async function POST(request) {
             );
         }
 
+        // Import User model
+        const User = (await import('@/model/user')).default;
+        
+        if (!User) {
+            console.error('❌ User model is not available');
+            return NextResponse.json(
+                { message: 'Server configuration error' },
+                { status: 500 }
+            );
+        }
+
         const body = await request.json();
         const { name, username, password, profilepic } = body;
-
+        
         console.log('📝 Register attempt for username:', username);
 
         // Validate input
@@ -47,56 +49,48 @@ export async function POST(request) {
         }
 
         // Check if user already exists
-        try {
-            const existingUser = await User.findOne({ username });
-            if (existingUser) {
-                return NextResponse.json(
-                    { message: 'Username already exists' },
-                    { status: 409 }
-                );
-            }
-        } catch (findError) {
-            console.error('❌ Error finding user:', findError);
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
             return NextResponse.json(
-                { message: 'Database error while checking username' },
-                { status: 500 }
+                { message: 'Username already exists' },
+                { status: 409 }
             );
         }
+
+        // Hash password using bcrypt directly
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
 
         // Create new user
-        try {
-            const newUser = new User({
-                name: name || username,
-                username,
-                password, // Will be hashed automatically
-                profilepic: profilepic || '',
-            });
+        const userData = {
+            name: name || username,
+            username,
+            password: hashedPassword,
+            profilepic: profilepic || '',
+            followers: [],
+            following: [],
+            bio: '',
+        };
 
-            await newUser.save();
-            console.log('✅ User created successfully:', username);
+        const newUser = new User(userData);
+        await newUser.save();
+        
+        console.log('✅ User created successfully:', username);
 
-            // Return user data without password
-            const userData = {
-                id: newUser._id,
-                name: newUser.name,
-                username: newUser.username,
-                profilepic: newUser.profilepic,
-                createAt: newUser.createAt,
-            };
+        // Return user data without password
+        const userResponse = {
+            id: newUser._id,
+            name: newUser.name,
+            username: newUser.username,
+            profilepic: newUser.profilepic,
+            createAt: newUser.createAt,
+        };
 
-            return NextResponse.json({
-                message: 'User created successfully',
-                user: userData
-            }, { status: 201 });
-
-        } catch (saveError) {
-            console.error('❌ Error saving user:', saveError);
-            return NextResponse.json(
-                { message: 'Error creating user: ' + saveError.message },
-                { status: 500 }
-            );
-        }
-
+        return NextResponse.json({ 
+            message: 'User created successfully',
+            user: userResponse
+        }, { status: 201 });
+        
     } catch (error) {
         console.error('❌ Registration error:', error);
         return NextResponse.json(
