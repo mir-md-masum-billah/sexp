@@ -3,11 +3,10 @@ import mongoose from "mongoose";
 
 const { Schema, model } = mongoose;
 
-// Check if we should skip model registration during build
-const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build' ||
-    !process.env.MONGODB_URI;
+// Check if we're in a build environment
+const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build';
 
-// Define the schemas
+// Define schemas
 const CommentSchema = new Schema({
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     username: { type: String, required: true },
@@ -30,38 +29,30 @@ const ReelSchema = new Schema({
     updatedAt: { type: Date, default: Date.now },
 }, { versionKey: false });
 
-// Create the model or return mock during build
+// Export the model
 let ReelModel;
 
-if (isBuildTime) {
+// During build time, return a lightweight mock
+if (isBuildTime || !process.env.MONGODB_URI) {
     console.log('⚠️ Build time - using mock Reel model');
-    // Create a mock model for build time
-    ReelModel = {
-        find: () => ({
-            sort: () => ({
-                skip: () => ({
-                    limit: () => ({
-                        populate: () => ({ exec: () => [] })
-                    })
-                })
-            }),
-            exec: () => []
-        }),
-        findById: () => ({
-            exec: () => null,
-            populate: () => ({ exec: () => null })
-        }),
-        findOne: () => ({ exec: () => null }),
-        countDocuments: () => ({ exec: () => 0 }),
-        create: (data) => data,
-        save: () => ({}),
-        deleteOne: () => ({}),
-        deleteMany: () => ({}),
-        updateOne: () => ({}),
-        updateMany: () => ({}),
+    ReelModel = function(data) {
+        this._doc = data || {};
+        this.save = async () => this;
+        this.populate = () => this;
     };
+    ReelModel.find = async (query) => [];
+    ReelModel.findById = async (id) => null;
+    ReelModel.countDocuments = async (query) => 0;
+    ReelModel.create = async (data) => data;
+    ReelModel.deleteOne = async () => ({ deletedCount: 0 });
+    ReelModel.updateOne = async () => ({ modifiedCount: 0 });
 } else {
-    ReelModel = mongoose.models.Reel || model("Reel", ReelSchema);
+    try {
+        ReelModel = mongoose.models.Reel || model("Reel", ReelSchema);
+    } catch (error) {
+        console.error('❌ Error creating Reel model:', error);
+        ReelModel = mongoose.models.Reel;
+    }
 }
 
 export default ReelModel;
