@@ -1,16 +1,31 @@
 // C:\Users\Admin\Desktop\sexp\app\api\reels\route.js
 import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
-import Reel from '@/model/reel';
-import User from '@/model/user'; // ✅ Add this import
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 
-// GET all reels (with pagination, filtering, and search)
 export async function GET(request) {
     try {
-        await connectDB();
-        
+        // During build time, return empty data
+        if (process.env.NEXT_PHASE === 'phase-production-build' || !process.env.MONGODB_URI) {
+            return NextResponse.json({
+                reels: [],
+                pagination: { page: 1, limit: 10, total: 0, pages: 0 }
+            }, { status: 200 });
+        }
+
+        // Import models dynamically
+        const { default: Reel } = await import('@/model/reel');
+        const { default: User } = await import('@/model/user');
+
+        const db = await connectDB();
+        if (!db) {
+            return NextResponse.json({
+                reels: [],
+                pagination: { page: 1, limit: 10, total: 0, pages: 0 }
+            }, { status: 200 });
+        }
+
         const { searchParams } = new URL(request.url);
         const page = parseInt(searchParams.get('page')) || 1;
         const limit = parseInt(searchParams.get('limit')) || 10;
@@ -19,10 +34,8 @@ export async function GET(request) {
         const search = searchParams.get('search') || '';
         const following = searchParams.get('following') === 'true';
 
-        // Build query
         let query = {};
-        
-        // Search functionality
+
         if (search) {
             query.$or = [
                 { title: { $regex: search, $options: 'i' } },
@@ -31,7 +44,6 @@ export async function GET(request) {
             ];
         }
 
-        // Following filter
         if (following) {
             const session = await getServerSession(authOptions);
             if (!session) {
@@ -40,25 +52,17 @@ export async function GET(request) {
                     { status: 401 }
                 );
             }
-            // Get user's following list from session
             const user = await User.findById(session.user.id);
             if (user && user.following && user.following.length > 0) {
                 query.userId = { $in: user.following };
             } else {
-                // If user is not following anyone, return empty results
                 return NextResponse.json({
                     reels: [],
-                    pagination: {
-                        page,
-                        limit,
-                        total: 0,
-                        pages: 0
-                    }
+                    pagination: { page, limit, total: 0, pages: 0 }
                 }, { status: 200 });
             }
         }
 
-        // Sorting
         let sortOption = { createdAt: -1 };
         if (sort === 'popular') {
             sortOption = { likes: -1, views: -1 };
@@ -90,11 +94,17 @@ export async function GET(request) {
     }
 }
 
-// POST new reel
 export async function POST(request) {
     try {
+        // During build time, return error
+        if (process.env.NEXT_PHASE === 'phase-production-build' || !process.env.MONGODB_URI) {
+            return NextResponse.json(
+                { message: 'API not available during build' },
+                { status: 503 }
+            );
+        }
+
         const session = await getServerSession(authOptions);
-        
         if (!session) {
             return NextResponse.json(
                 { message: 'Unauthorized' },
@@ -102,8 +112,16 @@ export async function POST(request) {
             );
         }
 
-        await connectDB();
-        
+        const { default: Reel } = await import('@/model/reel');
+
+        const db = await connectDB();
+        if (!db) {
+            return NextResponse.json(
+                { message: 'Database connection failed' },
+                { status: 503 }
+            );
+        }
+
         const { title, description, videoUrl, thumbnail } = await request.json();
 
         if (!title || !videoUrl) {
