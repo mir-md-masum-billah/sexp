@@ -56,7 +56,7 @@ export default function Navbar() {
                         ))}
                         {session ? (
                             <button
-                                onClick={() => signOut()}
+                                onClick={() => signOut({ callbackUrl: '/login' })}
                                 className="px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
                             >
                                 🚪 Logout
@@ -112,7 +112,7 @@ export default function Navbar() {
                         {session ? (
                             <button
                                 onClick={() => {
-                                    signOut();
+                                    signOut({ callbackUrl: '/login' });
                                     setIsMenuOpen(false);
                                 }}
                                 className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50"
