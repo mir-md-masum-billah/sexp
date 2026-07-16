@@ -1,7 +1,6 @@
 // C:\Users\Admin\Desktop\sexp\app\api\register\route.js
 import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
-import bcrypt from 'bcryptjs';
 
 export async function POST(request) {
     try {
@@ -57,15 +56,13 @@ export async function POST(request) {
             );
         }
 
-        // Hash password using bcrypt directly
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Create new user
+        // NOTE: password is left as plain text here on purpose.
+        // The pre('save') hook in model/user.js hashes it automatically.
+        // Hashing it here too would double-hash it and break login.
         const userData = {
             name: name || username,
             username,
-            password: hashedPassword,
+            password,
             profilepic: profilepic || '',
             followers: [],
             following: [],
